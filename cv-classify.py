@@ -14,6 +14,11 @@ DEFAULT_GMRATIO = 0.8
 CLASSIFIER_ALG_BF = 1
 CLASSIFIER_ALG_HIST = 2
 
+TRAINING_DATA_FILENAME = "cv-classify.train"
+
+RESCALE_WIDTH = 320
+RESCALE_HEIGHT = 240
+
 pp = pprint.PrettyPrinter(indent=4)
 
 def is_image_file(filename):
@@ -43,8 +48,8 @@ def extract_kps_descs(dir, sift):
     for full_path in files_to_proc:
         print "Processing " + full_path
         img = cv2.imread(full_path, 0)
-        ## Rescale to 320x240 prior to feature extraction
-        img = cv2.resize(img, (320,240))
+        ## Rescale prior to feature extraction
+        img = cv2.resize(img, (RESCALE_WIDTH, RESCALE_HEIGHT))
         
         kp, des = sift.detectAndCompute(img, None)
         
@@ -172,7 +177,7 @@ def do_training(training_dir, output_file = "", validate = False):
         print "Using %.5f" % threshold + " as the classification threshold value"
     
     if output_file == "":
-        output_file = os.path.join(training_dir, "woolf.train")
+        output_file = os.path.join(training_dir, TRAINING_DATA_FILENAME)
     print "Training done! Saving training data to " + output_file
     save_training_data(kps, descs, threshold, centroids, hist, output_file)
     
@@ -494,10 +499,10 @@ def count_filename_matches(dir, prefix):
 def show_help():
     print "options: "
     print "-t, --training <training-data-dir>       Enter training mode and use given directory for training data"
-    print "-v, --validate                           Perform validation (LOOCV) when clustering in training mode -- default is false"
-    print "-o, --output <output-dir>                Location of training data file (in training mode) or classified images (in classify mode) -- default is <training-data-dir>/woolf.train training mode, <img-dir>_out in classify mode"
     print "-c, --classify <img-dir>                 Enter classify mode, using the images in the given directory as input"
-    print "-a, --algorithm <classifier>             Use either \"bf\" (brute force) or \"hist\" (histogram) as the classifier algorithm. Default is \"bf\""
+    print "-v, --validate                           Perform validation (LOOCV) when clustering in training mode (default: false)"
+    print "-o, --output <output-dir>                Location of training data file (in training mode) or classified images (in classify mode) (default:  <training-data-dir>/" + TRAINING_DATA_FILENAME + " training mode, <img-dir>_out in classify mode)"
+    print "-a, --algorithm <classifier>             Use either \"bf\" (brute force) or \"hist\" (histogram) as the classifier algorithm (default: \"bf\")"
     print "-d, --data <training-data-file>          Use given file as source of training data"
     print "-r, --results <prefix-value>             [USE WITH -c] Check results after classification by inspecting filenames (filename that starts with the given prefix means it should be classified as a positive)"
     
