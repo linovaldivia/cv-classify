@@ -19,7 +19,13 @@ TRAINING_DATA_FILENAME = "cv-classify.train"
 RESCALE_WIDTH = 320
 RESCALE_HEIGHT = 240
 
-MATCH_PCT_THRESHOLD = 0.15
+# Parameters used in brute force classification
+# Minimum match ratio between a query image's descriptors and a training image's descriptors to be considered a "hit". 
+# If the query image "hits" at least a computed portion of the training image data, a positive classification is concluded.
+MATCH_RATIO_THRESHOLD = 0.15
+# If the ratio of the query image's descriptors that match a training image's descriptors is considered high, 
+# the image *might* still be positively classified (given that some other criteria is met).
+HIGH_MATCH_RATIO = 0.7
 
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -339,6 +345,7 @@ def do_hist_diff_classification(qimg_pathname, qdescs, threshold, centroids, tra
     
 def do_bruteforce_classification(qimg_pathname, qdescs, all_descs, bf, min_num_hits):
     num_hits = 0
+    has_high_match_ratio = False
     for i, trdescs in enumerate(all_descs):
         print "Matching with descriptor" + str(i) + " (" + str(len(trdescs)) + " descriptors)" 
         ## Find the best k matches between training descriptor and query descriptor
@@ -374,23 +381,30 @@ def do_bruteforce_classification(qimg_pathname, qdescs, all_descs, bf, min_num_h
             continue
             
         # Compute the ratio of matches to the number of descriptors (query or training, whichever has the higher value) 
-        pct_match = good_matches / float(max(len(qdescs), len(trdescs)))
-        msg = "Found " + str(int(good_matches)) + " good matches (%.2f" % (pct_match * 100) + "% match)"
-        if pct_match >= MATCH_PCT_THRESHOLD:
+        match_ratio = good_matches / float(max(len(qdescs), len(trdescs)))
+        msg = "Found " + str(int(good_matches)) + " good matches (%.2f" % (match_ratio * 100) + "% match)"
+        if match_ratio >= MATCH_RATIO_THRESHOLD:
             msg = "+ " + msg
         else:
             msg = "  " + msg
         print msg
     
-        # Only consider this image to be possibly positively identified if there are enough good matches
-        if pct_match >= MATCH_PCT_THRESHOLD:
+        if match_ratio >= HIGH_MATCH_RATIO:
+           has_high_match_ratio = True
+           
+        # Consider a positive classification if there are enough hits
+        if match_ratio >= MATCH_RATIO_THRESHOLD:
             num_hits+=1
-            # Consider query image as positively identified only if there are at least j matches (1 <= j <= #trainingimgs)
             if num_hits == min_num_hits:
                 print "+++ Image matched " + str(num_hits) + " in training data; " + qimg_pathname + " is a POSITIVE"
                 return True
-            
-    print "--- Image matched " + str(num_hits) + " in training data; " + qimg_pathname + " is a NEGATIVE"
+
+    # Consider a positive classification if the query image had a high match ratio and has at least one other hit
+    if has_high_match_ratio and num_hits > 1:
+        print "+++ Image strongly matched at least 1 image in training data; " + qimg_pathname + " is a POSITIVE"
+        return True
+    else:
+        print "--- Image matched " + str(num_hits) + " in training data; " + qimg_pathname + " is a NEGATIVE"
     return False
 
 def do_classify(test_dir, training_db, output_dir, results_prefix, classify_mode_alg=CLASSIFIER_ALG_BF):
