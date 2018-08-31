@@ -1,10 +1,10 @@
 # CV-classify: image classification using OpenCV (SIFT module)
 
-This is a fairly simple image classification Python script that I wrote as a project deliverable for my Machine Learning class at the Polytechnic University of Catalonia (UPC), back when I was doing the Master in Innovation and Research in Informatics program in 2015. It performs image classification using the SIFT (Scale-Invariant Feature Transform) module of the popular [OpenCV](https://opencv.org/) Python library. SIFT is a feature detection and description algorithm first published by David Lowe in 1999.
+This is a fairly simple image classification Python script that I wrote as a project deliverable for my 2014 Machine Learning class at the Polytechnic University of Catalonia (UPC), back when I was doing the Master in Innovation and Research in Informatics program. It performs image classification using the SIFT (Scale-Invariant Feature Transform) module of the popular [OpenCV](https://opencv.org/) Python library. SIFT is a feature detection and description algorithm first published by David Lowe in 1999.
 
 The classifier works by first reading a set of _training images_, from which features are detected and computed using SIFT. It then builds models and determines the parameters necessary for classification. Later the classifier can be executed to perform classification on a set of input images (also known as _query images_). Only images in JPG and PNG formats are accepted.
 
-Admittedly it's been years since I wrote this code and my understanding of image classification is now a bit fuzzy, but I didn't want to lose it so I decided to put it up. If you are an OpenCV/machine learning expert and have some feedback/corrections, please let me know!
+DISCLAIMER: It's been years since I wrote this code and my understanding of image classification is now fuzzier than it was even then, but I didn't want to lose it so I decided to put it up. If you are an OpenCV/machine learning expert and have some feedback/corrections, please let me know!
 
 ## Requirements/Dependencies
 
