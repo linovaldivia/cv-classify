@@ -19,6 +19,8 @@ TRAINING_DATA_FILENAME = "cv-classify.train"
 RESCALE_WIDTH = 320
 RESCALE_HEIGHT = 240
 
+MATCH_PCT_THRESHOLD = 0.15
+
 pp = pprint.PrettyPrinter(indent=4)
 
 def is_image_file(filename):
@@ -56,7 +58,7 @@ def extract_kps_descs(dir, sift):
         if des is None:
             print "No descriptors found! Skipping..."
             continue
-		
+        
         all_kps.extend([kp])
         all_descs.extend([des])
         
@@ -133,7 +135,7 @@ def do_training(training_dir, output_file = "", validate = False):
         return
 
     print str(len(descs)) + " descriptors found" 
-		
+        
     if len(descs) == 1:
         # Edge case: if we only have one training descriptor, we can't do LOOCV
         print "Only 1 training descriptor found; LOOCV can not be performed"
@@ -275,7 +277,7 @@ def load_training_data(training_db):
     kps, descs, threshold, centroids, hist = unpickle_training_data(training_data_pickle)
     
     return kps, descs, threshold, centroids, hist    
-	
+    
 def find_best_cluster(desc, centroids):
     best_cluster = 0
     least_distance = None
@@ -336,10 +338,9 @@ def do_hist_diff_classification(qimg_pathname, qdescs, threshold, centroids, tra
     return yes_classify 
     
 def do_bruteforce_classification(qimg_pathname, qdescs, all_descs, bf, min_num_hits):
-    i = 1
     num_hits = 0
-    for trdescs in all_descs:
-        print "Trying with descriptor" + str(i) + " (" + str(len(trdescs)) + " descriptors)" 
+    for i, trdescs in enumerate(all_descs):
+        print "Matching with descriptor" + str(i) + " (" + str(len(trdescs)) + " descriptors)" 
         ## Find the best k matches between training descriptor and query descriptor
         ## NOTE: need to do np.asarray() in order for the function to work -- maybe a python version issue
         ## Need to understand this better -- what exactly is being matched? What is the structure of the descriptors??
@@ -368,18 +369,28 @@ def do_bruteforce_classification(qimg_pathname, qdescs, all_descs, bf, min_num_h
             if m.distance < DEFAULT_GMRATIO*n.distance:
                 good_matches+=1
                 
-        num_min_matches = math.floor(max(len(qdescs), len(trdescs)) * 0.065)   # 6.5% of the descriptors in either query or train image
-        print "Found " + str(good_matches) + " good matches (" + str(num_min_matches) + " required)" 
+        if good_matches == 0:
+            print "  No descriptors matched, skipping..."
+            continue
+            
+        # Compute the ratio of matches to the number of descriptors (query or training, whichever has the higher value) 
+        pct_match = good_matches / float(max(len(qdescs), len(trdescs)))
+        msg = "Found " + str(int(good_matches)) + " good matches (%.2f" % (pct_match * 100) + "% match)"
+        if pct_match >= MATCH_PCT_THRESHOLD:
+            msg = "+ " + msg
+        else:
+            msg = "  " + msg
+        print msg
     
         # Only consider this image to be possibly positively identified if there are enough good matches
-        if num_min_matches > 0 and good_matches >= num_min_matches:
+        if pct_match >= MATCH_PCT_THRESHOLD:
             num_hits+=1
-            ## Consider query image as positively identified only if there are at least j matches (1 <= j <= #trainingimgs)
+            # Consider query image as positively identified only if there are at least j matches (1 <= j <= #trainingimgs)
             if num_hits == min_num_hits:
-                print "+++ Image produced " + str(num_hits) + " hits; " + qimg_pathname + " is a POSITIVE!"
+                print "+++ Image matched " + str(num_hits) + " in training data; " + qimg_pathname + " is a POSITIVE"
                 return True
-        i+=1
             
+    print "--- Image matched " + str(num_hits) + " in training data; " + qimg_pathname + " is a NEGATIVE"
     return False
 
 def do_classify(test_dir, training_db, output_dir, results_prefix, classify_mode_alg=CLASSIFIER_ALG_BF):
@@ -396,7 +407,7 @@ def do_classify(test_dir, training_db, output_dir, results_prefix, classify_mode
         min_num_hits = len(descs)/3
         if min_num_hits == 0:
             min_num_hits = 1
-        print "Images must have at least " + str(min_num_hits) + " hits for a positive classification"
+        print "Images must have at least " + str(min_num_hits) + " hits from training set for a positive classification"
         
     if os.path.isdir(test_dir):
         if output_dir == "":
