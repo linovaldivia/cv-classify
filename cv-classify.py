@@ -140,10 +140,10 @@ def do_training(training_dir, output_file = "", validate = False):
     if descs is None or len(descs) == 0:
         return
 
-    print str(len(descs)) + " descriptors found" 
+    print str(len(descs)) + " set(s) of descriptors found" 
         
     if len(descs) == 1:
-        # Edge case: if we only have one training descriptor, we can't do LOOCV
+        # Edge case: if we only have one set of training descriptor, we can't do LOOCV
         print "Only 1 training descriptor found; LOOCV can not be performed"
         validate = False
             
@@ -347,7 +347,7 @@ def do_bruteforce_classification(qimg_pathname, qdescs, all_descs, bf, min_num_h
     num_hits = 0
     has_high_match_ratio = False
     for i, trdescs in enumerate(all_descs):
-        print "Matching with descriptor" + str(i) + " (" + str(len(trdescs)) + " descriptors)" 
+        print "Matching with training " + str(i + 1) + " descriptors (" + str(len(trdescs)) + " total)" 
         ## Find the best k matches between training descriptor and query descriptor
         ## NOTE: need to do np.asarray() in order for the function to work -- maybe a python version issue
         ## Need to understand this better -- what exactly is being matched? What is the structure of the descriptors??
@@ -380,9 +380,10 @@ def do_bruteforce_classification(qimg_pathname, qdescs, all_descs, bf, min_num_h
             print "  No descriptors matched, skipping..."
             continue
             
-        # Compute the ratio of matches to the number of descriptors (query or training, whichever has the higher value) 
-        match_ratio = good_matches / float(max(len(qdescs), len(trdescs)))
-        msg = "Found " + str(int(good_matches)) + " good matches (%.2f" % (match_ratio * 100) + "% match)"
+        # Compute the ratio of matches to the number of descriptors (query or training, whichever has the higher value)
+        max_num_descs = max(len(qdescs), len(trdescs))
+        match_ratio = good_matches / float(max_num_descs)
+        msg = "Matched " + str(good_matches) + "/" + str(max_num_descs) + " descriptors (%.2f" % (match_ratio * 100) + "% match)"
         if match_ratio >= MATCH_RATIO_THRESHOLD:
             msg = "+ " + msg
         else:
