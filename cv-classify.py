@@ -19,7 +19,7 @@ RESCALE_WIDTH = 320
 RESCALE_HEIGHT = 240
 
 # Whether or not to use the min distance brute force "good match" checking algorithm (False = Use Ratio Test)
-USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG = True
+USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG = False
 # (When USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG = True) The minimum distance between a query descriptor and the nearest training descriptor in order to be considered a "good match"
 GOOD_MATCH_MIN_DISTANCE = 150.0
 # (When USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG = False) The minimum ratio between the two nearest training descriptors to a query descriptor in order to be considered a "good match"
@@ -188,7 +188,7 @@ def do_training(training_dir, output_file = "", validate = False):
         # Fix k but try to find the best clustering based on the average distance 
         best_k = 25
         threshold, centroids, hist = best_clustering(descs, best_k)
-        print "Using %.5f" % threshold + " as the classification threshold value"
+        print "Using %.5f" % threshold + " as the hist-diff classification threshold value"
     
     if output_file == "":
         output_file = os.path.join(training_dir, TRAINING_DATA_FILENAME)
@@ -260,7 +260,7 @@ def unpickle_training_data(training_data_pickle):
             
     # Read saved threshold
     threshold, idx = read_and_inc(training_data_pickle, idx)
-    print "Read %.5f" % threshold + " as the classification threshold" 
+    print "Read %.5f" % threshold + " as the hist-diff classification threshold" 
             
     # Read saved centroids
     centroids, idx = read_and_inc(training_data_pickle, idx)
