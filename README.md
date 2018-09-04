@@ -35,27 +35,47 @@ To get a list of options:
 
 ### Training the classifier
 
-Let's say you want to train the classifier with a set of images located in the directory `$HOME/training_imgs`. You can do this by running
+Let's say you want to train the classifier with a set of images of circles located in the directory `$HOME/cv-classify/training-circle`.
 
-    $ python cv-classify -t $HOME/training_imgs
+![Training images](/screenshots/training-images-circle-before.png)
 
-If all goes well the training data file `$HOME/training_imgs/cv-classify.train` should have been created. If you want to change the location of the training data file, use the `-o` or `--output` option to specify the target directory.
+You can do this by running
+
+    $ python cv-classify -t $HOME/cv-classify/training-circle
+
+If all goes well the training data file `cv-classify.train` should have been created in the same directory:
+
+![Training images with training data](/screenshots/training-images-circle-after.png)
+
+If you want to change the location of the training data file, use the `-o` or `--output` option to specify the target directory.
 
 ### Classifying images based on previous training
 
-To start classifying images in `$HOME/imgs_to_classify` using the previously-generated training data:
+Now let's try to classify the images located in `$HOME/cv-classify/classify-circle`:
 
-    $ python cv-classify -c $HOME/imgs_to_classify -d $HOME/training_imgs/cv-classify.train
+![Query images](/screenshots/query-images-circle.png)
+
+To start classifying using the previously-generated training data:
+
+    $ python cv-classify -c $HOME/cv-classify/classify-circle -d $HOME/cv-classify/training-circle/cv-classify.train
     
-By default the classifier will use the directory `$HOME/imgs_to_classify_out` (creating it if necessary) and then copy the images found in `$HOME/imgs_to_classify` into either `$HOME/imgs_to_classify_out/yes` or `$HOME/imgs_to_classify_out/no`, depending on whether or not the classifier considered an input image as a "positive match", given its training data. 
+By default the classifier will use the directory `$HOME/cv-classify/classify-circle_out` (creating and/or deleting it if necessary) and then copy the images found in `$HOME/cv-classify/classify-circle` to either `$HOME/cv-classify/classify-circle_out/yes` (positive classification):
+
+![Positive classification results](/screenshots/output-yes-circle.png)
+
+or `$HOME/cv-classify/classify-circle_out/no` (negative classification):
+
+![Negative classification results](/screenshots/output-no-circle.png)
+
+depending on whether or not the classifier considered an input image as a "positive match" to its training data. 
 
 ### Verifying classification results
 
 If the images to be classified have a prefix that identifies a successful match, the script can automatically verify the results of the classification and produce a confusion matrix for you. 
 
-Let's say you want to check if the classifier can correctly identify images of circles, and the filenames of input images of circles are prefixed with "circle" (e.g. "circle1.jpg", "circle-blue.png"). To verify the results of the classification, use the `-r` or `--results` option:
+Going back to our example of circle images, if the filenames of the input images of circles are prefixed with "circle" (e.g. "circle1.jpg", "circle-blue.png"), we can verify the results of the classification using the `-r` or `--results` option:
 
-    $ python cv-classify -c $HOME/imgs_to_classify -d $HOME/training_imgs/cv-classify.train -r circle
+    $ python cv-classify -c $HOME/cv-classify/classify-circle -d $HOME/cv-classify/training-circle/cv-classify.train -r circle
 
 If all goes well you should output similar to the following:
 
@@ -63,12 +83,12 @@ If all goes well you should output similar to the following:
     Results were computed by checking if the filename starts with "circle"
     Column headers represent the truth, row headers represent the predictions done by the classifier
          YES   NO
-    YES    5    1
-    NO     4    6
+    YES    7    1
+    NO     2    6
     
-    Correctly classified: 11/16 (68.75% accuracy, 31.25% error rate)
+    Correctly classified: 13/16 (81.25% accuracy, 18.75% error rate)
 
-According to this result, the classifier correctly identified an image as a circle 68.75% of the time. Not bad, but could use some improvement! 
+According to this result, the classifier got it right 81.25% of the time. Not bad! 
  
 ## TODOs
 
