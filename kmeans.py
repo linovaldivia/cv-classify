@@ -1,7 +1,8 @@
 import numpy as np
 import random
         
-## k-means clustering implementation c/o the Data Science Lab (http://datasciencelab.wordpress.com/2013/12/12/clustering-with-k-means-in-python/)
+## k-means clustering implementation (Lloyd's algorithm) c/o the Data Science Lab (http://datasciencelab.wordpress.com/2013/12/12/clustering-with-k-means-in-python/)
+
 def cluster_points(X, mu):
     clusters  = {}
     for x in X:

@@ -6,6 +6,8 @@ The classifier works by first reading a set of _training images_, from which fea
 
 DISCLAIMER: It's been years since I wrote this code and my understanding of image classification is now fuzzier than it was even then, but I didn't want to lose it so I decided to put it up. If you are an OpenCV/machine learning expert and have some feedback/corrections, please let me know!
 
+ADD'L CREDITS: The k-means clustering implementation (Lloyd's algorithm) was obtained from the wonderful [Data Science Lab](http://datasciencelab.wordpress.com/2013/12/12/clustering-with-k-means-in-python/).
+
 ## Requirements/Dependencies
 
 This code was developed and tested on: 
