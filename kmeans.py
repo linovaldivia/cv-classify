@@ -36,3 +36,19 @@ def cluster(X, K):
         # Reevaluate centers
         mu = reevaluate_centers(oldmu, clusters)
     return(mu, clusters)
+
+# Given a tuple x and a list of cluster centroids, return the index of the centroid whose cluster is closest 
+# (i.e. has the least distance) from the tuple    
+def find_closest_cluster(desc, centroids):
+    closest_cluster = 0
+    least_distance = None
+    for cluster in range(len(centroids)):
+        c = centroids[cluster]
+        distance = np.linalg.norm(desc-c)
+        if least_distance is None or distance < least_distance:
+            least_distance = distance
+            closest_cluster = cluster
+        
+    return closest_cluster
+    
+

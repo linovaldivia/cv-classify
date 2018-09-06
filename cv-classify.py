@@ -1,458 +1,15 @@
-import sys, getopt
-import os, os.path
-import shutil
-import numpy as np
-import math
-import cv2
-import pprint
+import sys
+import getopt
 
-import kmeans
-import drDill
-
-DEFAULT_K_CLUSTERS = 50
-
-CLASSIFIER_ALG_BF = 1
-CLASSIFIER_ALG_HIST = 2
-
-TRAINING_DATA_FILENAME = "cv-classify.train"
-
-RESCALE_WIDTH = 320
-RESCALE_HEIGHT = 240
-
-# Whether or not to use the min distance brute force "good match" checking algorithm (False = Use Ratio Test)
-USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG = False
-# (When USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG = True) The minimum distance between a query descriptor and the nearest training descriptor in order to be considered a "good match"
-GOOD_MATCH_MIN_DISTANCE = 150.0
-# (When USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG = False) The minimum ratio between the two nearest training descriptors to a query descriptor in order to be considered a "good match"
-GOOD_MATCH_MIN_DISTANCE_RATIO = 0.8
-
-# Parameters used in brute force classification
-# Minimum ratio of "good matches" between a query image's descriptors and a training image's descriptors to be considered a "hit". 
-# If the query image "hits" at least some x% of the training image data, a positive classification is concluded.
-GOOD_MATCH_TOTAL_MIN_RATIO = 0.15
-# If the ratio of "good matches" (i.e. x% of query image descriptors that are a "good match" to a training image descriptors) is considered high enough, 
-# the image *might* still be positively classified (given that some other criteria is met).
-GOOD_MATCH_HIGH_RATIO = 0.7
-
-pp = pprint.PrettyPrinter(indent=4)
-
-def is_image_file(filename):
-    _, ext = os.path.splitext(filename)
-    if ext.lower() in ['.jpg', '.png', '.jpeg']:
-        return True
-    return False
-
-def get_image_files(dir):
-    file_list = []
-    for root, dirs, files in os.walk(dir):
-        for file in files:
-            # Only include files whose extension is a known image type
-            if is_image_file(file):
-                full_path = os.path.join(root, file)
-                file_list.extend([full_path])
-    return file_list
-    
-def extract_kps_descs(dir, sift):
-    files_to_proc = get_image_files(dir)
-    if len(files_to_proc) == 0:
-        print "Found no image files in directory: " + dir
-        return [], []
-
-    all_kps = []
-    all_descs = []
-    for full_path in files_to_proc:
-        print "Processing " + full_path
-        img = cv2.imread(full_path, 0)
-        ## Rescale prior to feature extraction
-        img = cv2.resize(img, (RESCALE_WIDTH, RESCALE_HEIGHT))
-        
-        kp, des = sift.detectAndCompute(img, None)
-        
-        if des is None:
-            print "No descriptors found! Skipping..."
-            continue
-        
-        all_kps.extend([kp])
-        all_descs.extend([des])
-        
-        #if output_dir != "":
-        #    if not os.path.exists(output_dir):
-        #        os.makedirs(output_dir)
-            ## NOTE: we don't really need this for the classification but it's just something cool(ish) to look at
-        #    img_kp = cv2.drawKeypoints(img, kp, None, (0,0,255), 4)
-        #    _, file = os.path.split(full_path)
-        #    if not cv2.imwrite(os.path.join(output_dir, file), img_kp):
-        #        print "Unable to save " + os.path.join(output_dir, file) + "!"
-    
-    return all_kps, all_descs
-    
-def extract_centroids_histogram(descs, k = DEFAULT_K_CLUSTERS):
-    if len(descs) == 0:
-        return [], []
-    print "Performing clustering on " + str(len(descs)) + " descriptors (k=" + str(k) + ")..."
-    # Perform clustering to find the best grouping of the descriptors
-    centroids, hist = kmeans.cluster(descs, k)
-    print "Found " + str(len(centroids)) + " clusters in training descriptors "
-    hist = normalize_hist(hist, k)
-    return centroids, hist
-    
-def do_loocv(descs, k):
-    correct = 0
-    ndescs = len(descs)
-    for i in range(0,ndescs):
-        # Leave this set of descriptors out of the list of all descriptors
-        descs_loocv = descs[0:i] + descs[i+1:ndescs]
-    
-        # Flatten the list of descriptors
-        descs_flat_list = [item for sublist in descs_loocv for item in sublist]
-        if k > len(descs_flat_list):
-            print "Cluster size " + str(k) + " is greater than the number of descriptors to cluster; skipping..."
-            return None
-        # Build the histogram
-        centroids, hist = extract_centroids_histogram(descs_flat_list, k)
-        # See if the resulting histogram correctly classifies the set of descriptors that was left out
-        if do_hist_diff_classification("", descs[i], 0.3, centroids, hist):
-            correct+=1
-    # After going through all the descriptors, return the classification error rate
-    return (1-(float(correct)/ndescs))
-
-def best_clustering(descs, k):
-    best_centroids = None
-    best_hist = None
-    best_distance = None
-    ndescs = len(descs)
-    descs_flat_list = [item for sublist in descs for item in sublist]
-    for i in range(0,5):
-        # Try one possible clustering
-        centroids, hist = extract_centroids_histogram(descs_flat_list, k)
-        # Compute the difference of each image from this clustering
-        total_diff = 0
-        for d in descs:
-            h = compute_histogram(d, centroids, len(hist))
-            total_diff += get_hist_difference(h, hist)
-        average_distance = total_diff/ndescs
-        print str(i+1) + "st iteration: average distance is %.5f" % average_distance
-        if best_distance is None or best_distance > average_distance:
-            best_distance = average_distance
-            best_centroids = centroids
-            best_hist = hist
-        
-    return (best_distance*1.10), best_centroids, best_hist
-    
-def do_training(training_dir, output_file = "", validate = False):
-    #surf = cv2.SURF(hessian, upright=0)
-    sift = cv2.SIFT()
-    kps, descs = extract_kps_descs(training_dir, sift)
-
-    if descs is None or len(descs) == 0:
-        return
-
-    print str(len(descs)) + " set(s) of descriptors found" 
-        
-    if len(descs) == 1:
-        # Edge case: if we only have one set of training descriptor, we can't do LOOCV
-        print "Only 1 training descriptor found; LOOCV can not be performed"
-        validate = False
-            
-    if validate:
-        # Try different values of k (number of clusters) and do LOOCV on the training dir (using hist algorithm)
-        ks = [25, 50, 75, 100]
-        k_results = {}
-        best_k = ks[0]
-        best_error_rate = None
-        for k in ks:
-            print "Starting kmeans clustering loocv with k=" + str(k)
-            error_rate = do_loocv(descs, k)
-            if error_rate is None:
-                print "Error rate: N/A\n"
-            else:    
-                print "Error rate: %.5f" % error_rate + "\n"
-            k_results[k] = error_rate
-            if error_rate is not None and (best_error_rate is None or best_error_rate > error_rate):
-                best_k = k
-                best_error_rate = error_rate
-                
-        print "CV Results on cluster size: " 
-        print " k   Error Rate"
-        for k in ks:
-            error_rate = k_results[k]
-            if error_rate is None:
-                result = "SKIPPED"
-            else:
-                result = "%.2f" % error_rate
-            print "%3s" % k + ": " + result + ("     <-- BEST" if k == best_k else "")
-        print "\n"
-        # "Refit" a new clustering and centroids with the best k value
-        print "Reclustering using k=" + str(best_k) + " as the best number of clusters" 
-        threshold, centroids, hist = best_clustering(descs, best_k)
-    else:
-        # Fix k but try to find the best clustering based on the average distance 
-        best_k = 25
-        threshold, centroids, hist = best_clustering(descs, best_k)
-        print "Using %.5f" % threshold + " as the hist-diff classification threshold value"
-    
-    if output_file == "":
-        output_file = os.path.join(training_dir, TRAINING_DATA_FILENAME)
-    print "Training done! Saving training data to " + output_file
-    drDill.save_training_data(kps, descs, threshold, centroids, hist, output_file)
-    
-def find_best_cluster(desc, centroids):
-    best_cluster = 0
-    least_distance = None
-    for cluster in range(len(centroids)):
-        c = centroids[cluster]
-        distance = np.linalg.norm(desc-c)
-        if least_distance is None or distance < least_distance:
-            least_distance = distance
-            best_cluster = cluster
-        
-    return best_cluster
-    
-def normalize_hist(hist, nbins):
-    norm_hist = {}
-    num_entries = float(sum(len(v) for v in hist.itervalues()))
-    for i in range(0,nbins):
-        try:
-            norm_hist[i] = len(hist[i])/num_entries
-        except KeyError:
-            # If this bin doesn't exist, create it with a value of 0
-            norm_hist[i] = 0
-    return norm_hist
-    
-def get_hist_difference(query_hist, training_hist):
-    ## Trying chi-square distance of two histograms X and Y : sum(((x_i - y_i)^2)/(x_i+y_i))) * 1/2
-    total = 0
-    for bin in query_hist:
-        sq_diff = (query_hist[bin] - training_hist[bin])**2
-        sum = (query_hist[bin] + training_hist[bin])
-        #print "Cluster " + str(cluster) + ": " + str(diff)
-        if sum > 0:
-            total += (sq_diff/float(sum))
-    return total/2
-
-def compute_histogram(qdescs, centroids, nbins):
-    hist = {}
-    for qdesc in qdescs:
-        best_cluster = find_best_cluster(qdesc, centroids)
-        try:
-            hist[best_cluster].append(qdesc)
-        except KeyError:
-            hist[best_cluster] = [qdesc]
-    
-    return normalize_hist(hist, nbins)
-         
-def do_hist_diff_classification(qimg_pathname, qdescs, threshold, centroids, training_hist):
-    print "Computing image histogram, #bins=" + str(len(training_hist)) 
-    query_hist = compute_histogram(qdescs, centroids, len(training_hist))
-    
-    hist_diff = get_hist_difference(query_hist, training_hist)
-    print "Histogram distance (chi-squared): " + str(hist_diff)
-    
-    # Classify the image as a + if the histogram difference is below a certain threshold
-    yes_classify = (hist_diff < threshold)
-    if yes_classify and qimg_pathname != "":
-        print "+++ Image " + qimg_pathname + " is a POSITIVE!"
-                
-    return yes_classify 
-
-def is_good_match(match1, match2):
-    # print "match1.queryIdx = " + str(match1.queryIdx) + " match1.trainIdx = " + str(match1.trainIdx) + " match1.distance = " + str(match1.distance)
-    # print "match2.queryIdx = " + str(match2.queryIdx) + " match2.trainIdx = " + str(match2.trainIdx) + " match2.distance = " + str(match2.distance)
-    # What constitutes a "good match"?
-    # New alg: "good match" means that the distance of the query descriptor from the first nearest training descriptor < threshold
-    if USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG:
-        if match1.distance < GOOD_MATCH_MIN_DISTANCE:
-            return True
-    # Old alg (ratio test): "good match" means that the distance between the k=2 nearest training descriptors is less than a threshold (as mentioned in DLowe SIFT paper)
-    elif match1.distance/match2.distance < GOOD_MATCH_MIN_DISTANCE_RATIO:
-        return True
-    return False
-
-def do_bruteforce_classification(qimg_pathname, qdescs, all_descs, bf, min_num_hits):
-    num_hits = 0
-    has_high_match_ratio = False
-    
-    if  USE_MIN_DISTANCE_BF_GOOD_MATCH_ALG:
-        print "Using minimum distance good match algorithm (brute force)"
-    else:
-        print "Using ratio test good match algorithm (brute force)"
-
-    for i, trdescs in enumerate(all_descs):
-        print "Matching with training " + str(i + 1) + " descriptors (" + str(len(trdescs)) + " total)" 
-        ## Find the best k matches between training descriptor and query descriptor
-        ## NOTE: need to do np.asarray() in order for the function to work -- maybe a python version issue?
-        ## Each "descriptor" is actually an array of 128 float32 values -- it's SIFT/SURF's numerical representation of a feature
-        ## The keypoint structure contains metadata about the feature -- it's x,y location, octave, angle, etc.
-        ## If we treat each descriptor as a 128-d vector, knnMatch will then attempt to find the k nearest descriptor vectors
-        ## Note that qdesc is a set of descriptors, with each descriptor represented by 128 values 
-        ## For each descriptor q in qdesc, bf.knnMatch will attempt to find the k nearest neighbors of q in trdesc 
-        matches = bf.knnMatch(np.asarray(qdescs, np.float32),
-                              np.asarray(trdescs, np.float32),k=2)
-                              
-        ## What is the structure of this "matches" list? 
-        ## Each element in the "matches" list is another list of k (possibly less) "match" objects. 
-        ## The "matches" list will have len(qdescs) elements, i.e. there is an element for each descriptor in the query image. 
-        ## Each element in the sublist ("matches[i][j]") contains queryIdx, trainIdx, imgIdx, and distance (between the descriptor qdesc[queryIdx] and trdesc[trainIdx])
-        ## Since k=2, m and n will be two match objects for the same query image descriptor (i.e. m.queryIdx == n.queryIdx) but with two different
-        ## training image descriptors (i.e. m.trainIdx != n.trainIdx, representing the k=2 nearest neighbors to the query image descriptor)
-        
-        # Now find out how many of the extracted query descriptors were a "good match" to the training descriptors.
-        good_matches = 0
-        for m,n in matches:
-            if is_good_match(m, n):
-                good_matches += 1
-                
-        if good_matches == 0:
-            print "  0 descriptors matched, skipping..."
-            continue
-            
-        # How many query descriptors were "good matches"?
-        match_ratio = good_matches / float(len(qdescs))
-        msg = str(good_matches) + "/" + str(len(qdescs)) + " (%.2f" % (match_ratio * 100) + "%) query descriptors matched!"
-        if match_ratio >= GOOD_MATCH_HIGH_RATIO:
-           has_high_match_ratio = True
-           
-        if match_ratio >= GOOD_MATCH_TOTAL_MIN_RATIO:
-            msg = "+ " + msg
-        else:
-            msg = "  " + msg
-        print msg
-           
-        # Consider a positive classification if there are enough hits
-        if match_ratio >= GOOD_MATCH_TOTAL_MIN_RATIO:
-            num_hits+=1
-            if num_hits == min_num_hits:
-                print "+++ Image matched " + str(num_hits) + " in training data; " + qimg_pathname + " is a POSITIVE"
-                return True
-
-    # Consider a positive classification if the query image had a high match ratio and has at least one other hit
-    if has_high_match_ratio and num_hits > 1:
-        print "+++ Image strongly matched at least 1 image in training data; " + qimg_pathname + " is a POSITIVE"
-        return True
-    else:
-        print "--- Image matched " + str(num_hits) + " in training data; " + qimg_pathname + " is a NEGATIVE"
-    return False
-
-def do_classify(test_dir, training_db, output_dir, results_prefix, classify_mode_alg=CLASSIFIER_ALG_BF):
-    if training_db == "":
-        print "A training data file should be specified (specify using -d or --data)"
-        return
-
-    kps, descs, threshold, centroids, hist = drDill.load_training_data(training_db)
-    if len(descs) == 0:
-        print "No training data loaded"
-        return
-        
-    if classify_mode_alg == CLASSIFIER_ALG_BF:
-        min_num_hits = len(descs)/3
-        if min_num_hits == 0:
-            min_num_hits = 1
-        print "Images must have at least " + str(min_num_hits) + " hits from training set for a positive classification"
-        
-    if os.path.isdir(test_dir):
-        if output_dir == "":
-            output_dir = os.path.normpath(test_dir) + "_out"
-            
-        if os.path.exists(output_dir):
-            ## Delete its contents!
-            print "Removing " + output_dir + " prior to classification..."
-            shutil.rmtree(output_dir)
-        
-        output_dir_yes = os.path.join(output_dir, "yes")
-        output_dir_no = os.path.join(output_dir, "no")
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        if not os.path.exists(output_dir_yes):    
-            os.makedirs(output_dir_yes)
-        if not os.path.exists(output_dir_no):    
-            os.makedirs(output_dir_no)
-
-        files_to_proc = get_image_files(test_dir)
-        if len(files_to_proc) == 0:
-            print "Found no image files in " + test_dir
-            return
-    else:
-        if not os.path.exists(test_dir):
-            print "File not found: " + test_dir
-            return
-        elif not is_image_file(test_dir):
-            print test_dir + " is not a recognized image file."
-            return
-        else:
-            files_to_proc = [test_dir]
-
-    #surf = cv2.SURF(hessian, upright=0)            
-    sift = cv2.SIFT()            
-    bf = cv2.BFMatcher(cv2.NORM_L2)
-            
-    for qimg_pathname in files_to_proc:
-        print "\n-------------------------------------\nClassifying " + qimg_pathname
-        _, qimg_filename = os.path.split(qimg_pathname)    
-        
-        qimg = cv2.imread(qimg_pathname, 0)
-        qimg = cv2.resize(qimg, (320,240))
-                                
-        ## Get the descriptors of the query image
-        _, qdescs = sift.detectAndCompute(qimg, None)
-        print "Found " + str(len(qdescs)) + " descriptors in query image"
-    
-        yes_classify = False
-        if classify_mode_alg == CLASSIFIER_ALG_BF:
-            yes_classify = do_bruteforce_classification(qimg_pathname, qdescs, descs, bf, min_num_hits)
-        elif classify_mode_alg == CLASSIFIER_ALG_HIST:
-            yes_classify = do_hist_diff_classification(qimg_pathname, qdescs, threshold, centroids, hist)
-        
-        if os.path.isdir(test_dir):
-            dest_path = os.path.join(output_dir_no, qimg_filename)
-            if yes_classify:
-                dest_path = os.path.join(output_dir_yes, qimg_filename)
-            
-            shutil.copyfile(qimg_pathname, dest_path)
-        
-    if results_prefix != "" and os.path.isdir(test_dir):
-        compute_classification_results(output_dir_yes, output_dir_no, results_prefix)
-    
-def compute_classification_results(output_dir_yes, output_dir_no, prefix):
-    yes_yes, yes_no = count_filename_matches(output_dir_yes, prefix)
-    no_yes, no_no = count_filename_matches(output_dir_no, prefix)
-    
-    print "\n-=-=-=-=-=- CLASSIFICATION RESULTS -=-=-=-=-=-"
-    print "Results were computed by checking if the filename starts with \"" + prefix + "\""
-    print "Column headers represent the truth, row headers represent the predictions done by the classifier"
-    print "%8s" % "YES" + "%5s" % "NO"
-    print "YES %4s" % str(yes_yes) + "%5s" % str(yes_no)
-    print "NO %5s" % str(no_yes) + "%5s" % str(no_no)
-    
-    ## Compute accuracy
-    total = yes_yes + yes_no + no_yes + no_no
-    correct = yes_yes + no_no
-    correct_rate = (correct/float(total))
-    error_rate = 1 - correct_rate
-    print "\nCorrectly classified: " + str(correct) + "/" + str(total) + " (%.2f" % (correct_rate * 100.0) + "%% accuracy, %.2f" % (error_rate * 100.0) + "% error rate)"
-    return error_rate
-            
-def count_filename_matches(dir, prefix):
-    yes_match = 0
-    no_match = 0
-    ## Get list of filenames in the given directory
-    pathnames = get_image_files(dir)
-    ## For each filename, check if it starts with the given prefix,
-    ## and increment counters based on the result
-    for pname in pathnames:
-        _, fname = os.path.split(pname)
-        if fname.lower().startswith(prefix):
-            yes_match += 1
-        else:
-            no_match += 1
-    
-    return yes_match, no_match            
+import trainer
+import classifier
             
 def show_help():
     print "options: "
     print "-t, --training <training-data-dir>       Enter training mode and use given directory for training data"
     print "-c, --classify <img-dir>                 Enter classify mode, using the images in the given directory as input"
     print "-v, --validate                           Perform validation (LOOCV) when clustering in training mode (default: false)"
-    print "-o, --output <output-dir>                Location of training data file (in training mode) or classified images (in classify mode) (default:  <training-data-dir>/" + TRAINING_DATA_FILENAME + " training mode, <img-dir>_out in classify mode)"
+    print "-o, --output <output-dir>                Location of training data file (in training mode) or classified images (in classify mode) (default:  <training-data-dir>/" + trainer.TRAINING_DATA_FILENAME + " training mode, <img-dir>_out in classify mode)"
     print "-a, --algorithm <classifier>             Use either \"bf\" (brute force) or \"hist\" (histogram) as the classifier algorithm (default: \"bf\")"
     print "-d, --data <training-data-file>          Use given file as source of training data"
     print "-r, --results <prefix-value>             [USE WITH -c] Check results after classification by inspecting filenames (filename that starts with the given prefix means it should be classified as a positive)"
@@ -465,11 +22,11 @@ def main(argv):
     # Parse parameters.
     training_dir = ""
     output_dir = ""
-    test_dir = ""
+    query_path = ""
     training_db = ""
     training_mode = False
     classify_mode = False
-    classify_mode_alg = CLASSIFIER_ALG_BF
+    classify_mode_alg = classifier.CLASSIFIER_ALG_BF
     results_prefix = ""
     validate = False
     try:
@@ -484,13 +41,13 @@ def main(argv):
         elif opt in ("-o", "--output"):
             output_dir = arg
         elif opt in ("-c", "--classify"):
-            test_dir = arg
+            query_path = arg
             classify_mode = True
         elif opt in ("-a", "--algorithm"):
             if arg == "bf":
-                classify_mode_alg = CLASSIFIER_ALG_BF
+                classify_mode_alg = classifier.CLASSIFIER_ALG_BF
             elif arg == "hist":
-                classify_mode_alg = CLASSIFIER_ALG_HIST
+                classify_mode_alg = classifier.CLASSIFIER_ALG_HIST
             else:
                 print "Illegal value for -a/--algorithm: " + arg
                 sys.exit(3)
@@ -506,8 +63,8 @@ def main(argv):
         sys.exit(1)
     
     if classify_mode:
-        do_classify(test_dir, training_db, output_dir, results_prefix, classify_mode_alg)
+        classifier.classify(query_path, training_db, output_dir, results_prefix, classify_mode_alg)
     elif training_mode:
-        do_training(training_dir, output_dir, validate)
+        trainer.train_classifier(training_dir, output_dir, validate)
             
 main(sys.argv[1:])
